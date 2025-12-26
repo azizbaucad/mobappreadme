@@ -324,6 +324,8 @@ Choisir la suite :
 
 👉 **Donne le numéro et on continue immédiatement.**
 
+```text
+
 Mobile App
   |
   | POST /mobile/transfers/initiate
