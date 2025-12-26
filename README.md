@@ -346,3 +346,11 @@ Callback MTN
   |
 update inboundStatus = SUCCESS / FAILED
 
+PROCHAINE ÉTAPE (quand tu veux)
+
+1️⃣ Implémenter le callback MTN (update status)
+2️⃣ Implémenter checkStatus côté mobile
+3️⃣ Préparer sequence diagram officiel (Mobile → Digipartner → MTN)
+
+Dis-moi “on passe au callback” et on continue proprement.
+
