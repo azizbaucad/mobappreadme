@@ -323,3 +323,24 @@ Choisir la suite :
 4. Ajouter la **gestion des fees & taux de change**
 
 👉 **Donne le numéro et on continue immédiatement.**
+
+Mobile App
+  |
+  | POST /mobile/transfers/initiate
+  |
+MobileTransferService
+  |
+  | persist inboundStatus=PENDING
+  |
+RouterAsync
+  |
+  | requestToPay (MoMo Collection)
+  |
+MTN MoMo
+  |
+  | USSD *126#
+  |
+Callback MTN
+  |
+update inboundStatus = SUCCESS / FAILED
+
