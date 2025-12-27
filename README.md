@@ -354,3 +354,19 @@ PROCHAINE ÉTAPE (quand tu veux)
 
 Dis-moi “on passe au callback” et on continue proprement.
 
+👉 **API Get Transfer Fees and Exhange Rate : POST : /trnasfers/fees **
+
+```text
+
+mobileapp
+ ├── api
+ │   └── TransferFeeResource.java
+ ├── dto
+ │   ├── TransferFeeRequest.java
+ │   └── TransferFeeResponse.java
+ ├── service
+ │   └── TransferFeeService.java
+ └── util
+     └── FeeCalculator.java
+
+
