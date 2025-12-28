@@ -369,4 +369,18 @@ mobileapp
  └── util
      └── FeeCalculator.java
 
+**ARCHITECTURE CORRECTE (FINTECH STANDARD)**
+
+[HTTP API]
+   |
+   |-- TX1 (REQUIRED)
+   |   ├─ persist digipartnertransaction (PENDING)
+   |   └─ COMMIT
+   |
+   |-- TX2 (REQUIRES_NEW, ASYNC)
+       ├─ call MTN MoMo
+       ├─ update transaction status
+       └─ commit
+
+
 
