@@ -382,5 +382,18 @@ mobileapp
        ├─ update transaction status
        └─ commit
 
+**🔴 POINT CRITIQUE À CORRIGER IMMÉDIATEMENT**
+
+Aujourd’hui ton RouterAsync fait UNE seule étape :
+```text
+Mobile → RouterAsync → MoMo → DB update → FIN
+
+
+Mais il doit faire DEUX étapes métier :
+```text
+1️⃣ RequestToPay (débit wallet)
+2️⃣ Payout DigiMain (crédit bénéficiaire)
+
+
 
 
