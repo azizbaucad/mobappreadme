@@ -394,6 +394,270 @@ Mais il doit faire DEUX étapes métier :
 1️⃣ RequestToPay (débit wallet)
 2️⃣ Payout DigiMain (crédit bénéficiaire)
 
+** ----------------------------------------------------------------- **
+
+Voici la **version README.md** propre et prête à être commitée de ton prompt 👇
+
+---
+
+# 📱 Mobile Auth – Register Endpoint
+
+Ce document décrit la mise en place d’un **endpoint `/register` dédié à la Mobile App**, inspiré de `UserAccessApiService`, mais **adapté au payload mobile**, **sans appel HTTP interne**, et **sans casser la transaction**.
+
+---
+
+## 🎯 Objectif
+
+Créer un endpoint d’inscription mobile avec les caractéristiques suivantes :
+
+* **Endpoint** : `POST /mobile/auth/register`
+* **Cible** : Utilisateur Mobile
+* **AccessType** : `INDIVIDUAL` (ou `CUSTOMER`)
+* **KYC** : `NOT_SUBMITTED`
+* **JWT** : Généré immédiatement après inscription
+* **Aucun appel HTTP interne** (`/addUserRole` supprimé)
+* **Transaction** : `REQUIRES_NEW`
+
+---
+
+## 📦 Payload Mobile (Confirmé)
+
+```json
+{
+  "firstName": "John",
+  "lastName": "Doe",
+  "userAccessType": "INDIVIDUAL",
+  "phoneNumber": "+242061234567",
+  "password": "SecureP@ss123",
+  "email": "john.doe@example.com",
+  "country": "CG",
+  "managedCountry": "CG",
+  "firstLogin": true,
+  "deviceToken": "ExponentPushToken[xxx]",
+  "nationality": "Congolese",
+  "address": "123 Main Street, Brazzaville",
+  "sex": "M",
+  "dateOfBirth": "1990-01-15"
+}
+```
+
+---
+
+## 🧩 DTO Mobile
+
+### `MobileRegisterRequest`
+
+```java
+public class MobileRegisterRequest {
+
+    private String firstName;
+    private String lastName;
+    private String userAccessType;
+    private String phoneNumber;
+    private String password;
+    private String email;
+    private String country;
+    private String managedCountry;
+    private boolean firstLogin;
+    private String deviceToken;
+    private String nationality;
+    private String address;
+    private String sex;
+    private String dateOfBirth;
+
+    // getters / setters
+}
+```
+
+---
+
+## 🚀 Endpoint à Créer
+
+📍 **`UserAccessApiService.java`**
+
+```java
+@Path("/mobile/auth")
+@Stateless
+@Api(tags = "Mobile Authentication")
+public class UserAccessApiService {
+
+    @Inject
+    private CrudService crudService;
+
+    @Inject
+    private UserAccessSession session;
+
+    @Inject
+    private IdGenerator idGenerator;
+
+    @Inject
+    private HashPassword hash;
+
+    @Inject
+    private ObjectMapper objectMapper;
+
+    // =====================================================
+    // MOBILE REGISTER
+    // =====================================================
+    @POST
+    @Path("/register")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    @ApiOperation("Register mobile user")
+    public Response registerMobileUser(MobileRegisterRequest req) {
+
+        // 1️⃣ Validations minimales
+        if (req == null || Strings.isNullOrEmpty(req.getPhoneNumber())
+                || Strings.isNullOrEmpty(req.getPassword())
+                || Strings.isNullOrEmpty(req.getFirstName())
+                || Strings.isNullOrEmpty(req.getLastName())
+                || Strings.isNullOrEmpty(req.getCountry())) {
+
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(error("INVALID_PAYLOAD", "Missing required fields"))
+                    .build();
+        }
+
+        // 2️⃣ Vérification unicité
+        if (session.ckeckLoginPhone(req.getPhoneNumber()) != null) {
+            return Response.status(Response.Status.CONFLICT)
+                    .entity(error("PHONE_ALREADY_EXISTS", "Phone number already registered"))
+                    .build();
+        }
+
+        if (!Strings.isNullOrEmpty(req.getEmail())
+                && session.ckeckLoginEmail(req.getEmail()) != null) {
+
+            return Response.status(Response.Status.CONFLICT)
+                    .entity(error("EMAIL_ALREADY_EXISTS", "Email already registered"))
+                    .build();
+        }
+
+        // 3️⃣ Création UserAccess
+        UserAccess user = new UserAccess();
+        user.setId(idGenerator.generateID());
+        user.setFirstName(req.getFirstName());
+        user.setLastName(req.getLastName());
+        user.setPhoneNumber(req.getPhoneNumber());
+        user.setEmail(req.getEmail());
+        user.setPassword(hash.encrypt(req.getPassword()));
+        user.setCountry(req.getCountry());
+        user.setManagedCountry(req.getManagedCountry());
+        user.setNationality(req.getNationality());
+        user.setAddress(req.getAddress());
+        user.setSex(req.getSex());
+        user.setDateOfBirth(req.getDateOfBirth());
+        user.setDeviceToken(req.getDeviceToken());
+        user.setUserAccessStatus("active");
+        user.setUserKycStatus("NOT_SUBMITTED");
+        user.setFirstLogin(req.isFirstLogin());
+        user.setLastModifiedDate(new Date());
+
+        AccessType accessType =
+                AccessType.valueOf(req.getUserAccessType().toUpperCase());
+
+        user.setUserAccessType(accessType);
+
+        crudService.save(user);
+
+        // 4️⃣ Génération JWT
+        String token = generateJwt(user);
+
+        // 5️⃣ Réponse
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", 200);
+        response.put("message", "User registered successfully");
+        response.put("userid", user.getId());
+        response.put("name", user.getFirstName() + " " + user.getLastName());
+        response.put("firstName", user.getFirstName());
+        response.put("lastName", user.getLastName());
+        response.put("token", token);
+        response.put("hpass", user.getPassword());
+        response.put("accessType", user.getUserAccessType().name());
+        response.put("country", user.getCountry());
+        response.put("managedCountry", user.getManagedCountry());
+        response.put("phoneNumber", user.getPhoneNumber());
+        response.put("email", user.getEmail());
+        response.put("userAccessStatus", user.getUserAccessStatus());
+        response.put("userAccessPicture", user.getUserAccessPicture());
+        response.put("userKycStatus", user.getUserKycStatus());
+        response.put("deviceToken", user.getDeviceToken());
+        response.put("webViewUrl", user.getWebViewUrl());
+
+        return Response.ok(response).build();
+    }
+
+    // =====================================================
+    private Map<String, String> error(String code, String msg) {
+        Map<String, String> e = new HashMap<>();
+        e.put("errorCode", code);
+        e.put("message", msg);
+        return e;
+    }
+
+    private String generateJwt(UserAccess user) {
+        return Jwts.builder()
+                .setSubject(user.getId().toString())
+                .claim("accessType", user.getUserAccessType().name())
+                .claim("country", user.getCountry())
+                .setIssuedAt(new Date())
+                .signWith(SignatureAlgorithm.HS256, "DIGIPAY_SECRET")
+                .compact();
+    }
+}
+```
+
+---
+
+## ✅ Différences avec l’ancien `/register`
+
+| Ancien UserAccessAPI | Mobile Register |
+| -------------------- | --------------- |
+| Async + HTTP interne | Sync simple     |
+| `/addUserRole` HTTP  | ❌ Supprimé      |
+| Rollback fréquent    | ❌ Impossible    |
+| Multi-cas backoffice | Mobile only     |
+| Pas de token         | JWT immédiat    |
+
+---
+
+## 🧪 Test Postman
+
+```
+POST /digipartner/rest/api/v1/mobile/auth/register
+Content-Type: application/json
+```
+
+### Résultat attendu
+
+* ✅ HTTP 200
+* ✅ User créé en base
+* ✅ Token JWT retourné
+* ✅ Prêt pour `/mobile/transfers`
+
+---
+
+## 🧠 Conclusion
+
+* ✔ Endpoint mobile **isolé**
+* ✔ Zéro rollback fantôme
+* ✔ Token prêt immédiatement
+* ✔ KYC initialisé
+* ✔ Onboarding Mobile App ready
+
+---
+
+### 🚀 Prochaines étapes possibles
+
+* `/login`
+* `/refresh-token`
+* `/kyc/submit`
+* Intégration Flutter / React Native
+
+👉 Dis-moi ce que tu veux faire ensuite, on continue 💪
+
+
 
 
 
