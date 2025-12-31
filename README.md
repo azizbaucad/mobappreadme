@@ -657,6 +657,379 @@ Content-Type: application/json
 
 👉 Dis-moi ce que tu veux faire ensuite, on continue 💪
 
+### 🚀 ----------------- Etapes du payout avec DigiMain -------------------------------------------------------
+Voici la **version README.md propre, structurée et prête à être commitée**, fidèle à ton contenu et à un standard FINTECH professionnel.
+
+---
+
+# 📘 README — Flow FINTECH Mobile → DigiMain → Agrégateurs
+
+## 🎯 Objectif
+
+Décrire **le flow FINTECH complet et standardisé** pour les transferts d’argent depuis une application mobile vers des bénéficiaires internationaux, en s’appuyant sur l’existant :
+
+* **Inbound / Digipartner**
+* **DigiMain / DigiTransfer**
+* **Agrégateurs** : Thunes, Terrapay, Magma, Peex, banques
+
+👉 **Aucune réinvention**
+👉 **Aucune rupture de l’existant**
+👉 **Alignement strict FINTECH international**
+
+---
+
+## 🧭 Principe clé (fondamental)
+
+> **L’application Mobile s’arrête à :**
+>
+> * la création de la transaction
+> * le débit MoMo (ou wallet source)
+
+> **Le crédit bénéficiaire est 100 % géré par DigiMain + les agrégateurs**
+
+➡️ **Séparation stricte des responsabilités (best practice FINTECH)**
+
+---
+
+## 🧱 Flow global (vue macro)
+
+```text
+[MOBILE APP]
+    |
+    | 1. Create Transaction (Send Money)
+    |
+[DIGIPARTNER - Inbound]
+    |
+    | TX1 - Persist Transaction (NEW)
+    |
+    | TX2 - Debit MTN MoMo (RequestToPay)
+    |
+    |--> STATUS = PENDING
+    |
+[DIGIMAIN - DigiTransfer]
+    |
+    | 2. Quotation (Thunes / Terrapay / Bank)
+    |
+    | 3. Payout Execution
+    |
+    |--> STATUS = SUCCESS / FAILED
+```
+
+---
+
+## 🧩 ÉTAPE 1 — Création de transaction (Application commerciale)
+
+**Responsables**
+
+* Mobile App
+* Digipartner (Inbound)
+
+**Statut initial**
+
+* `NEW`
+
+---
+
+### 1️⃣ Récupération des payers / banques disponibles
+
+#### Objectif
+
+Afficher à l’utilisateur **les destinations possibles** (banques, wallets, cash).
+
+#### Inputs
+
+* `destinationCountry`
+* `amount`
+* `transferType` (`C2C | C2B`)
+* `partnerSource` (MTN, Orange…)
+
+#### API
+
+```http
+GET /partners/payers?country=FR&amount=1000&type=C2C
+```
+
+➡️ Appel vers agrégateurs (Thunes, Terrapay, Bank)
+➡️ Retour : liste des payers disponibles
+
+---
+
+### 0️⃣ Type de document (KYC)
+
+#### Objectif
+
+Identifier **le document requis** selon le pays et le partenaire.
+
+#### Exemples
+
+* `identity_card`
+* `national_id`
+* `passport`
+
+#### Util commun à créer
+
+```java
+DocumentTypeUtils.map("CNI", "identity_card");
+DocumentTypeUtils.map("CARTE_NATIONALE", "national_id");
+```
+
+---
+
+### 2️⃣ Récupération des raisons de transfert
+
+#### Objectif
+
+Champ **obligatoire** pour Thunes / Terrapay.
+
+#### Inputs
+
+* `country`
+* `partner`
+* `payerId`
+
+#### API
+
+```http
+GET /partners/transfer-reasons?country=FR&partner=THUNES
+```
+
+---
+
+### 3️⃣ & 4️⃣ Calcul des frais et du taux de change (OBLIGATOIRE)
+
+⚠️ **Cette étape doit être faite AVANT la sauvegarde finale**
+
+```http
+POST /transfers/fees
+```
+
+#### Calculs
+
+* Montant source
+* Montant destination
+* FX
+* Frais Digipay
+* Frais partenaire
+
+> ❗ Double calcul possible,
+> ❗ **Une seule version persistée**
+
+---
+
+### 5️⃣ Enregistrement de la transaction
+
+**Classe cible**
+
+* `TransactionApiService.java`
+
+**Table**
+
+* `digitransaction`
+
+**Données persistées**
+
+* Sender
+* Beneficiary
+* Transaction
+* `status = NEW`
+
+```text
+---------------- END COMMERCIAL APP ----------------
+```
+
+---
+
+## 🔁 ÉTAPE 2 — DigiTransfer (Payout vers agrégateurs)
+
+**Responsable**
+
+* DigiMain / DigiTransfer
+
+**Cycle de statut**
+
+* `NEW → PENDING → SUCCESS | FAILED`
+
+---
+
+### 1️⃣ Sélection des transactions à traiter
+
+```sql
+SELECT * FROM digitransaction WHERE status = 'NEW';
+```
+
+---
+
+### 2️⃣ Quotation (OBLIGATOIRE avant payout)
+
+📌 Endpoint dédié **Mobile**
+
+```http
+POST /digimain/mobile/quotation
+```
+
+#### Payload
+
+* `payerId`
+* `destinationCountry`
+* `destinationCurrency`
+* `beneficiaryAmount`
+
+#### Réponse
+
+* `quotationId`
+* `fees`
+* `fxRate`
+* `expiry`
+
+➡️ **Le `quotationId` doit être persisté en base**
+
+---
+
+### 0️⃣ Normalisation du document KYC sender
+
+⚠️ **Obligatoire avant l’envoi au partenaire**
+
+```java
+IdentityDocumentUtils.normalize(senderDocument);
+```
+
+Mapping vers :
+
+* `identity_card`
+* `card_national`
+* `passport`
+
+---
+
+### 3️⃣ Envoi de la transaction au partenaire (PAYOUT)
+
+#### Payload
+
+* `quotationId`
+* Sender info
+* Beneficiary info
+* Documents
+* Attachments (Thunes)
+
+#### API
+
+```http
+POST /partners/payout
+```
+
+#### Statut
+
+```text
+NEW → PENDING
+```
+
+---
+
+### 4️⃣ Suivi de statut (Polling / Webhook)
+
+#### Modes supportés
+
+* Polling
+* Webhook
+
+#### Webhooks existants
+
+```text
+/webhook/receive_magma_status
+/webhook/receive_thunes_status
+/webhook/receive_terrapay_status
+```
+
+#### Transitions
+
+```text
+PENDING → SUCCESS
+PENDING → FAILED
+```
+
+---
+
+## 🧠 Alignement avec le code existant
+
+Le `TransactionActionBean` implémente déjà ce flow :
+
+* Quotation
+* Attachments
+* Transaction confirm
+* `nomApi = THUNES | TERRAPAY | MAGMA`
+* `etatTransac = new | pending | success | failed`
+
+👉 **Le backend est déjà là**
+👉 **Il faut exposer et industrialiser la version Mobile**
+
+---
+
+## 🏁 Checklist finale (obligatoire)
+
+* [ ] Endpoint **Quotation Mobile** (DigiMain)
+* [ ] `DocumentTypeUtils`
+* [ ] Séparation TX :
+
+  * TX1 : Save transaction
+  * TX2 : Payout async
+* [ ] Sauvegarde du `quotationId`
+* [ ] Statuts normalisés (`NEW / PENDING / SUCCESS / FAILED`)
+* [ ] Webhooks actifs pour tous les agrégateurs
+* [ ] ❌ Aucun payout sans quotation
+
+---
+
+## 📊 Sequence diagram (simplifié)
+
+```text
+Mobile App
+   |
+   | Create Transaction
+   |
+Digipartner (Inbound)
+   |
+   | Save Transaction (NEW)
+   |
+   | Debit MTN MoMo
+   |
+   |--> PENDING
+   |
+DigiMain
+   |
+   | Quotation (Thunes)
+   |
+   | Payout Request
+   |
+Partner
+   |
+   | Webhook / Status
+   |
+DigiMain
+   |
+   |--> SUCCESS / FAILED
+```
+
+---
+
+## 🧠 Conclusion
+
+* ✅ Flow **FINTECH international standard**
+* ✅ Architecture saine et scalable
+* ✅ Code backend déjà existant
+* 🎯 Travail restant : **industrialiser la version Mobile**
+
+---
+
+### 🚀 Prochaines étapes possibles
+
+1. Concevoir l’API **Quotation Mobile**
+2. Normaliser `DocumentTypeUtils`
+3. Produire le **diagramme UML officiel**
+4. Séparer clairement TX1 / TX2 en code
+
+👉 Choisis un numéro et on continue immédiatement.
+
+
 
 
 
