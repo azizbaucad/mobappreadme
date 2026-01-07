@@ -1029,6 +1029,55 @@ DigiMain
 
 👉 Choisis un numéro et on continue immédiatement.
 
+### 👉 Diagramme de sequence sur les nouvelles integration du mobile ###
+
+sequenceDiagram
+    autonumber
+
+    participant M as Mobile App
+    participant API as MobileTransferResource
+    participant S as TransferPrecheckService
+    participant P as ThunesReferenceProvider
+    participant T as Thunes API
+
+    M->>API: GET /mobile/transfers/pre-check<br/>?amount&currency&destination
+    API->>S: preCheck(request)
+
+    %% Étape 1 : dépendance critique
+    S->>P: getPartnerProfile(destination)
+    P->>T: GET /partners/{id}
+    T-->>P: PartnerProfile
+    P-->>S: PartnerProfile
+
+    %% Étape 2 : appels parallèles
+    par Parallel calls
+        S->>P: getTransferReasons()
+        P->>T: GET /transfer-reasons
+        T-->>P: Reasons
+        P-->>S: Reasons
+    and
+        S->>P: getRelationships()
+        P->>T: GET /relationships
+        T-->>P: Relationships
+        P-->>S: Relationships
+    and
+        S->>P: getRecipientBanks()
+        P->>T: GET /banks
+        T-->>P: Banks
+        P-->>S: Banks
+    and
+        S->>P: getQuote(amount, currency)
+        P->>T: POST /quotes
+        T-->>P: Fees + FX
+        P-->>S: FinancialDetails
+    end
+
+    %% Agrégation finale
+    S->>S: assemble TransferOrchestrationDTO
+    S-->>API: DTO
+    API-->>M: 200 OK + JSON
+
+
 
 
 
