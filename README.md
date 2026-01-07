@@ -1167,6 +1167,272 @@ mobileapp
 └── mapper
     └── MobileToInboundMapper.java
 ```
+### TESSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSTTTTTTTTTTTTTTTTT #################
+
+Parfait 👍
+On va poser ça **clairement, étape par étape**, **sans brûler les étapes**, et **en restant aligné legacy + parcours Mobile**.
+
+Je vais structurer la réponse en 4 blocs :
+
+1️⃣ **Où on se situe exactement dans le parcours**
+2️⃣ **Ce qu’on décide d’implémenter maintenant (et ce qu’on ignore volontairement)**
+3️⃣ **Architecture cible (services / providers / ressources)**
+4️⃣ **Logique “Features / Futures” pour grouper les appels API**
+
+---
+
+## 1️⃣ Où on se situe dans le parcours global
+
+Si on se réfère strictement à la doc et au parcours Mobile 👇
+
+📌 **On est ici :**
+
+```
+ETAPE 0 / ETAPE 1 (FRONT-LOADED DATA)
+┌───────────────────────────────┐
+│ Chargement initial Mobile App │
+│                               │
+│ • Partenaires (Thunes, …)     │  ✅ (on commence)
+│ • Raisons de transfert        │  ✅ (à faire)
+│ • Banques                     │  ✅ (à faire)
+│ • Relations expéditeur        │  ✅ (à faire)
+└───────────────────────────────┘
+```
+
+👉 **AUCUNE transaction encore**
+👉 **AUCUN débit**
+👉 **AUCUNE écriture DB critique**
+
+On est **100% en mode “référentiel / configuration”**.
+
+---
+
+## 2️⃣ Ce qu’on implémente maintenant (et ce qu’on ignore)
+
+### ✅ À implémenter MAINTENANT (prototype autorisé)
+
+Pour **THUNES en priorité** :
+
+1. **Liste des partenaires (payers)**
+   `GET /mobile/thunes/partners`
+   ➜ déjà fait (mock OK)
+
+2. **Liste des raisons de transfert**
+   (ex: FAMILY_SUPPORT, EDUCATION, MEDICAL)
+
+3. **Liste des banques**
+   (ex: BICEC, Afriland, SG)
+
+4. **Liste des relations**
+   (ex: FAMILY, FRIEND, BUSINESS)
+
+⚠️ **Toutes ces données sont NON critiques**
+➡️ donc **mockées**
+➡️ mais **structure finale respectée**
+
+---
+
+### ❌ À ignorer volontairement maintenant
+
+* vérification utilisateur
+* bénéficiaires
+* KYC
+* frais dynamiques réels
+* quotation
+* transaction / paiement
+
+👉 **on ne touche pas aux étapes 2 → 7**
+
+---
+
+## 3️⃣ Architecture cible (propre, scalable, legacy-compatible)
+
+### 🎯 Principe clé
+
+👉 **UNE ressource Mobile**
+👉 **UN service d’orchestration**
+👉 **UN provider par partenaire**
+
+---
+
+### 📦 Structure finale (Mobile App)
+
+```text
+mobileapp
+├── api
+│   ├── TransferPrecheckResource      ✅ (existe)
+│   └── ThunesReferenceResource       ✅ (optionnel / plus tard)
+│
+├── service
+│   └── TransferPrecheckService       ⭐ ORCHESTRATEUR
+│
+├── provider
+│   ├── ThunesPartnerProvider         ✅
+│   ├── ThunesReasonProvider          🟡
+│   ├── ThunesBankProvider            🟡
+│   └── ThunesRelationProvider        🟡
+│
+├── dto
+│   ├── TransferPrecheckResponse
+│   ├── PartnerDTO
+│   ├── ReasonDTO
+│   ├── BankDTO
+│   └── RelationDTO
+```
+
+---
+
+### 🔥 Règle d’or
+
+* **Resource** = HTTP / headers / status
+* **Service** = logique métier + orchestration
+* **Provider** = appel partenaire (ou mock)
+* **DTO** = contrat stable Mobile ↔ Backend
+
+---
+
+## 4️⃣ Logique “Features / Futures” (le cœur de ta demande)
+
+Tu as dit :
+
+> *“Vous utiliser la methode des Features (thread ou quoi) pour faire des appels API groupés”*
+
+👉 Exactement.
+👉 On utilise **CompletableFuture** (Java standard, déjà utilisé dans le legacy).
+
+---
+
+### 🧠 Pourquoi cette logique ?
+
+* Les données **NE DÉPENDENT PAS ENTRE ELLES**
+* Le Mobile veut **UNE seule réponse**
+* THUNES réel = appels réseau lents
+* On veut **performance + isolation**
+
+---
+
+## 5️⃣ Logique détaillée — étape par étape
+
+### 🧩 Étape A — Entrée Mobile
+
+```http
+GET /api/v1/mobile/transfers/pre-check
+```
+
+Paramètres :
+
+* destinationCountry
+* destinationCurrency
+* transferType
+
+👉 arrive dans `TransferPrecheckResource`
+
+---
+
+### 🧩 Étape B — Orchestration (TransferPrecheckService)
+
+Pseudo-code clair 👇
+
+```java
+CompletableFuture<List<PartnerDTO>> partnersFuture =
+        thunesPartnerProvider.getPartnersAsync(...);
+
+CompletableFuture<List<ReasonDTO>> reasonsFuture =
+        thunesReasonProvider.getReasonsAsync();
+
+CompletableFuture<List<BankDTO>> banksFuture =
+        thunesBankProvider.getBanksAsync(destinationCountry);
+
+CompletableFuture<List<RelationDTO>> relationsFuture =
+        thunesRelationProvider.getRelationsAsync();
+```
+
+➡️ **4 appels parallèles**
+
+---
+
+### 🧩 Étape C — Synchronisation (barrière)
+
+```java
+CompletableFuture.allOf(
+        partnersFuture,
+        reasonsFuture,
+        banksFuture,
+        relationsFuture
+).join();
+```
+
+👉 on attend que **TOUT soit prêt**
+
+---
+
+### 🧩 Étape D — Agrégation finale
+
+```java
+TransferPrecheckResponse response = new TransferPrecheckResponse();
+
+response.setPartners(partnersFuture.get());
+response.setTransferReasons(reasonsFuture.get());
+response.setBanks(banksFuture.get());
+response.setRelationships(relationsFuture.get());
+```
+
+👉 **UNE seule réponse JSON** pour le Mobile
+
+---
+
+## 6️⃣ Ce que le Mobile obtient (résultat final)
+
+```json
+{
+  "partners": [...],
+  "transferReasons": [...],
+  "banks": [...],
+  "relationships": [...]
+}
+```
+
+🎯 **Le Mobile peut maintenant :**
+
+* afficher les opérateurs
+* afficher les motifs
+* afficher les banques
+* afficher les relations
+* passer à l’étape suivante du parcours
+
+---
+
+## 7️⃣ Prochaine étape logique après ça
+
+Une fois **PRE-CHECK COMPLET** validé 👇
+
+### ➡️ Étape suivante à implémenter
+
+👉 **INITIATE TRANSFER (TX1)**
+
+```
+POST /mobile/transfers/initiate
+```
+
+Objectifs :
+
+* mapper le choix utilisateur
+* créer TransactionRequest
+* persister status = NEW
+* déclencher async (sans payout)
+
+---
+
+## 👉 Dis-moi maintenant
+
+On continue par quoi **immédiatement** ?
+
+1️⃣ Implémenter **ThunesReasonProvider**
+2️⃣ Implémenter **ThunesBankProvider**
+3️⃣ Implémenter **ThunesRelationProvider**
+4️⃣ Écrire **TransferPrecheckService complet (avec Futures)**
+
+👉 Donne juste le numéro, on code directement.
 
 
 
