@@ -1077,6 +1077,65 @@ sequenceDiagram
     S-->>API: DTO
     API-->>M: 200 OK + JSON
 
+    ### Diagramme de sequence globale ###
+
+    sequenceDiagram
+    autonumber
+
+    participant M as Mobile App
+    participant API as Digipartner Mobile API
+    participant INB as Digipartner Inbound
+    participant MTN as MTN MoMo
+    participant DM as DigiMain
+    participant TH as Thunes
+    participant P as Partner Bank/MNO
+
+    %% ======================
+    %% ÉTAPE 0 — PRE-CHECK
+    %% ======================
+    M->>API: GET /mobile/transfers/pre-check
+    API->>TH: Reference APIs (reasons, banks, relations, fees)
+    TH-->>API: Reference data
+    API-->>M: Precheck DTO
+
+    %% ======================
+    %% ÉTAPE 1 — CREATE TRANSACTION (TX1)
+    %% ======================
+    M->>API: POST /mobile/transfers
+    API->>INB: map Mobile → TransactionRequest
+    INB->>INB: Validate + Save Transaction
+    INB-->>INB: status = NEW (COMMIT)
+
+    %% ======================
+    %% ÉTAPE 2 — DEBIT MTN MOMO (TX2 - ASYNC)
+    %% ======================
+    INB->>MTN: RequestToPay (amount)
+    MTN-->>M: USSD / Push (*126#)
+    MTN-->>INB: Callback payment result
+    INB->>INB: status = PENDING
+
+    %% ======================
+    %% ÉTAPE 3 — QUOTATION DIGIMAIN
+    %% ======================
+    INB->>DM: Notify payment SUCCESS
+    DM->>TH: Request quotation
+    TH-->>DM: quotationId + FX + fees
+
+    %% ======================
+    %% ÉTAPE 4 — PAYOUT
+    %% ======================
+    DM->>P: Payout request (quotationId)
+    P-->>DM: ACK / Processing
+
+    %% ======================
+    %% ÉTAPE 5 — FINAL STATUS
+    %% ======================
+    P-->>DM: Webhook / Status
+    DM->>DM: status = SUCCESS | FAILED
+    DM-->>INB: Final status
+    INB-->>M: Transaction result
+
+
 
 
 
