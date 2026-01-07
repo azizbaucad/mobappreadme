@@ -1135,6 +1135,39 @@ sequenceDiagram
     DM-->>INB: Final status
     INB-->>M: Transaction result
 
+    ### Structure sur lequel se baser pour mob app ###
+```text
+mobileapp
+├── api
+│   ├── TransferPrecheckResource.java
+│   └── MobileTransferResource.java
+│
+├── dto
+│   ├── BankDTO.java
+│   ├── TransferReasonDTO.java
+│   ├── RelationshipDTO.java
+│   ├── FinancialDetailsDTO.java
+│   ├── TransferPrecheckResponse.java
+│   └── MobileTransferRequest.java
+│
+├── service
+│   ├── TransferPrecheckService.java
+│   └── MobileTransferService.java
+│
+├── provider
+│   └── thunes
+│       ├── ThunesReferenceProvider.java
+│       ├── dto
+│       │   ├── ThunesReasonDTO.java
+│       │   ├── ThunesBankDTO.java
+│       │   └── ThunesRelationshipDTO.java
+│       └── mapper
+│           └── ThunesToMobileMapper.java
+│
+└── mapper
+    └── MobileToInboundMapper.java
+```
+
 
 
 
